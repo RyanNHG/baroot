@@ -1,8 +1,12 @@
 module Main exposing (main)
 
+import Debug
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
+import Http
+import Json.Decode
+import Json.Encode
 import Navigation exposing (Location)
 
 
@@ -13,6 +17,11 @@ type Msg
     | MakeSquigg
     | Update InputField String
     | ToggleSignInForm
+    | SignInClicked
+    | SignUpClicked
+    | SignOutClicked
+    | SignInRespond (Result Http.Error (ApiResponse User))
+    | SignOutRespond (Result Http.Error (ApiResponse String))
 
 
 type InputField
@@ -25,6 +34,29 @@ type SortOption
     = Top
     | Recent
     | Awful
+
+
+type alias Credentials a =
+    { a
+        | username : String
+        , password : String
+    }
+
+
+type alias SigningInStatus a =
+    { a
+        | showSignInForm : Bool
+        , signingUp : Bool
+        , signingIn : Bool
+        , signInError : String
+    }
+
+
+type alias ApiResponse a =
+    { error : Bool
+    , message : String
+    , data : List a
+    }
 
 
 type alias User =
@@ -60,6 +92,9 @@ type alias Model =
     , username : String
     , password : String
     , showSignInForm : Bool
+    , signingUp : Bool
+    , signingIn : Bool
+    , signInError : String
     }
 
 
@@ -85,7 +120,10 @@ init context location =
         []
         ""
         ""
-        True
+        False
+        False
+        False
+        ""
         ! []
 
 
@@ -124,6 +162,108 @@ update msg model =
         ToggleSignInForm ->
             { model | showSignInForm = not model.showSignInForm } ! []
 
+        SignInClicked ->
+            { model | signingIn = True, signInError = "" } ! [ signIn model ]
+
+        SignUpClicked ->
+            { model | signingUp = True, signInError = "" } ! [ signUp model ]
+
+        SignOutClicked ->
+            model ! [ signOut ]
+
+        SignInRespond (Ok response) ->
+            if response.error then
+                { model
+                    | signingIn = False
+                    , signInError = response.message
+                }
+                    ! []
+            else
+                { model
+                    | signingIn = False
+                    , showSignInForm = False
+                    , context = setUser (List.head response.data) model.context
+                }
+                    ! []
+
+        SignInRespond (Err err) ->
+            let
+                _ =
+                    Debug.log "Sign in error" err
+            in
+            { model | signingIn = False, signInError = "Oops! We has a problem. Please try again." } ! []
+
+        SignOutRespond (Ok response) ->
+            if response.error then
+                let
+                    _ =
+                        Debug.log "Sign out error" response.error
+                in
+                model ! []
+            else
+                { model
+                    | context = setUser Nothing model.context
+                }
+                    ! []
+
+        SignOutRespond (Err err) ->
+            let
+                _ =
+                    Debug.log "Sign in error" err
+            in
+            model ! []
+
+
+setUser : Maybe User -> Context -> Context
+setUser user context =
+    { context | user = user }
+
+
+signIn : Credentials a -> Cmd Msg
+signIn =
+    signInUpHelper "sign-in"
+
+
+signUp : Credentials a -> Cmd Msg
+signUp =
+    signInUpHelper "sign-up"
+
+
+signOut : Cmd Msg
+signOut =
+    Http.send SignOutRespond (Http.post "/api/sign-out" Http.emptyBody (responseDecoder Json.Decode.string))
+
+
+signInUpHelper : String -> Credentials a -> Cmd Msg
+signInUpHelper endpoint credentials =
+    Http.send
+        SignInRespond
+        (Http.post ("/api/" ++ endpoint) (bodyFromCredentials credentials) (responseDecoder userDecoder))
+
+
+bodyFromCredentials : Credentials a -> Http.Body
+bodyFromCredentials { username, password } =
+    Http.jsonBody
+        (Json.Encode.object
+            [ ( "username", Json.Encode.string <| username )
+            , ( "password", Json.Encode.string <| password )
+            ]
+        )
+
+
+responseDecoder : Json.Decode.Decoder a -> Json.Decode.Decoder (ApiResponse a)
+responseDecoder decoder =
+    Json.Decode.map3 ApiResponse
+        (Json.Decode.field "error" Json.Decode.bool)
+        (Json.Decode.field "message" Json.Decode.string)
+        (Json.Decode.field "data" (Json.Decode.list decoder))
+
+
+userDecoder : Json.Decode.Decoder User
+userDecoder =
+    Json.Decode.map User
+        (Json.Decode.field "id" Json.Decode.string)
+
 
 makeSquigg : Squigg -> Model -> Model
 makeSquigg squigg model =
@@ -152,7 +292,7 @@ view model =
     div [ class "app" ]
         [ viewNavbar model.draft ( model.sortOption, model.sortAscending ) model.expandedNavbar model.context.user
         , viewPage model.context
-        , viewSignInModal model model.showSignInForm
+        , viewSignInModal model model
         ]
 
 
@@ -168,43 +308,55 @@ type alias SortInfo =
 viewNavbar : String -> SortInfo -> Bool -> Maybe User -> Html Msg
 viewNavbar draft sortInfo expandedNavbar user =
     nav [ class "navbar has-shadow" ]
-        [ div [ class "navbar-brand" ]
-            [ a [ class "navbar-item", href "/" ]
-                [ img [ src "/penguin.png", alt "baroot penguino" ] []
-                , h3 [ class "subtitle is-padded-left" ] [ baroot ]
-                ]
-            , div
-                [ class "navbar-burger"
-                , classList [ ( "is-active", expandedNavbar ) ]
-                , onClick ToggleNavbar
-                ]
-                [ span [] []
-                , span [] []
-                , span [] []
-                ]
-            ]
-        , div [ class "navbar-menu", classList [ ( "is-active", expandedNavbar ) ] ]
-            [ div [ class "navbar-start" ]
-                [ div [ class "nav-item tabs is-toggle is-marginless" ]
-                    [ ul [] (List.map (viewNavbarTab sortInfo) navbarTabs)
+        [ div [ class "container" ]
+            [ div [ class "navbar-brand" ]
+                [ a [ class "navbar-item", href "/" ]
+                    [ img [ src "/public/penguin.png", alt "baroot penguino" ] []
+                    , h3 [ class "subtitle is-padded-left" ] [ baroot ]
                     ]
-                , if user /= Nothing then
-                    viewNewPostField draft
-                  else
-                    text ""
+                , div
+                    [ class "navbar-burger"
+                    , classList [ ( "is-active", expandedNavbar ) ]
+                    , onClick ToggleNavbar
+                    ]
+                    [ span [] []
+                    , span [] []
+                    , span [] []
+                    ]
                 ]
-            , div [ class "navbar-end" ]
-                [ div [ class "nav-item" ]
-                    (if user == Nothing then
-                        [ button
-                            [ class "button is-info is-outlined"
-                            , onClick ToggleSignInForm
-                            ]
-                            [ text "Sign in" ]
+            , div [ class "navbar-menu", classList [ ( "is-active", expandedNavbar ) ] ]
+                [ div [ class "navbar-start" ]
+                    [ div [ class "nav-item tabs is-toggle is-marginless" ]
+                        [ ul [] (List.map (viewNavbarTab sortInfo) navbarTabs)
                         ]
-                     else
-                        [ button [ class "button is-link is-outlined" ] [ text "Sign out" ] ]
-                    )
+                    , if user /= Nothing then
+                        viewNewPostField draft
+                      else
+                        text ""
+                    ]
+                , div [ class "navbar-end" ]
+                    [ div [ class "nav-item" ]
+                        (if user == Nothing then
+                            [ button
+                                [ class "button is-info is-outlined"
+                                , onClick ToggleSignInForm
+                                ]
+                                [ text "Sign in" ]
+                            ]
+                         else
+                            [ button
+                                [ class "button is-link is-outlined"
+                                , disabled True
+                                ]
+                                [ text "Your squiggs" ]
+                            , button
+                                [ class "button is-danger is-outlined"
+                                , onClick SignOutClicked
+                                ]
+                                [ text "Sign out" ]
+                            ]
+                        )
+                    ]
                 ]
             ]
         ]
@@ -270,20 +422,16 @@ viewPage context =
     div [ class "hero" ] []
 
 
-type alias SignInForm a =
-    { a | username : String, password : String }
-
-
-viewSignInModal : SignInForm a -> Bool -> Html Msg
-viewSignInModal formInputs showForm =
-    div [ class "modal", classList [ ( "is-active", showForm ) ] ]
+viewSignInModal : SigningInStatus a -> Credentials b -> Html Msg
+viewSignInModal signInStatus credentials =
+    div [ class "modal", classList [ ( "is-active", signInStatus.showSignInForm ) ] ]
         [ div
             [ class "modal-background"
             , onClick ToggleSignInForm
             ]
             []
         , div [ class "modal-content" ]
-            [ viewSignInForm formInputs
+            [ viewSignInForm signInStatus credentials
             ]
         , div
             [ class "modal-close is-large"
@@ -294,16 +442,46 @@ viewSignInModal formInputs showForm =
         ]
 
 
-viewSignInForm : SignInForm a -> Html Msg
-viewSignInForm { username, password } =
+viewSignInForm : SigningInStatus a -> Credentials b -> Html Msg
+viewSignInForm { signingIn, signingUp, signInError } { username, password } =
     div [ class "box" ]
         [ viewFormInput "text" "Username" (Update Username) username
         , viewFormInput "password" "Password" (Update Password) password
         , hr [] []
-        , if isValidSignInForm username password then
-            button [ class "button is-info" ] [ text "Sign in" ]
-          else
-            button [ class "button is-info", disabled True ] [ text "Sign in" ]
+        , div [ class "field is-grouped is-grouped-right" ]
+            ([ p [ class "control" ]
+                (if String.length signInError > 0 then
+                    [ span [ class "tag is-danger" ] [ text signInError ] ]
+                 else
+                    []
+                )
+             ]
+                ++ (if isValidSignInForm username password then
+                        [ p [ class "control" ]
+                            [ button
+                                [ class "button is-link"
+                                , onClick SignUpClicked
+                                , classList [ ( "is-loading", signingUp ) ]
+                                ]
+                                [ text "Join" ]
+                            ]
+                        , p [ class "control" ]
+                            [ button
+                                [ class "button is-info"
+                                , onClick SignInClicked
+                                , classList [ ( "is-loading", signingIn ) ]
+                                ]
+                                [ text "Sign in" ]
+                            ]
+                        ]
+                    else
+                        [ p [ class "control" ]
+                            [ button [ class "button is-link", disabled True ] [ text "Join" ] ]
+                        , p [ class "control" ]
+                            [ button [ class "button is-info", disabled True ] [ text "Sign in" ] ]
+                        ]
+                   )
+            )
         ]
 
 

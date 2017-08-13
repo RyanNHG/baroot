@@ -8,13 +8,15 @@ export const passport = passport_
 passport.use(new Strategy((username : string, password : string, done : Function) =>
   findUser(username, password)
     .then(user => done(null, user))
-    .catch(reason => done(null, false, { message: reason }))
+    .catch(reason => done(null, false, reason))
 ))
 
-passport.serializeUser((user : User, done : Function) => done(null, user.id))
+passport.serializeUser((user : User, done : Function) =>
+    done(null, user.id)
+)
 
 passport.deserializeUser((id : string, done : Function) =>
   findUserWithId(id)
     .then(user => done(null, user))
-    .catch(reason => done({ message: reason }, false))
+    .catch(reason => done(reason, false))
 )

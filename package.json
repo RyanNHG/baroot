@@ -1,0 +1,42 @@
+{
+  "name": "baroot",
+  "version": "1.0.0",
+  "description": "baroot?",
+  "main": "dist/index.js",
+  "scripts": {
+    "start": "node dist/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://www.github.com/ryannhg/baroot"
+  },
+  "keywords": [
+    "baroot"
+  ],
+  "author": "Ryan Haskell-Glatz",
+  "license": "ISC",
+  "dependencies": {
+    "body-parser": "^1.17.2",
+    "express": "^4.15.4",
+    "express-session": "^1.15.5",
+    "lowdb": "^0.16.2",
+    "morgan": "^1.8.2",
+    "passport": "^0.4.0",
+    "passport-local": "^1.0.0",
+    "pug": "^2.0.0-rc.3"
+  },
+  "devDependencies": {
+    "@types/body-parser": "^1.16.4",
+    "@types/express": "^4.0.36",
+    "@types/lowdb": "^0.15.0",
+    "@types/morgan": "^1.7.32",
+    "@types/passport": "^0.3.3",
+    "del": "^3.0.0",
+    "gulp": "^3.9.1",
+    "gulp-elm": "^0.7.2",
+    "gulp-sass": "^3.1.0",
+    "gulp-typescript": "^3.2.1",
+    "run-sequence": "^2.1.0",
+    "typescript": "^2.4.2"
+  }
+}

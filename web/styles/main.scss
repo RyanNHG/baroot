@@ -3,9 +3,19 @@ html, body {
     margin: 0;
     overflow-y: auto;
 }
+body, button, ::-webkit-input-placeholder {
+    text-transform: lowercase !important;
+}
+input {
+    text-transform: initial !important;
+}
 .is-padded-left {
     padding-left: .5em;
 }
 .is-padded-right {
     padding-right: .5em;
+}
+
+.container {
+    max-width: 720px;
 }

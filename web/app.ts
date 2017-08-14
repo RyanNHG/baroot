@@ -28,6 +28,9 @@ app.use('/public', express.static(path('public')))
 app.post('/api/sign-up', api.signUp)
 app.post('/api/sign-in', api.signIn)
 app.post('/api/sign-out', api.signOut)
+
+app.post('/api/squiggs', api.squigg)
+
 app.use('/api', (_req, res) => res.json({
   error: true,
   message: `No endpoint found.`,

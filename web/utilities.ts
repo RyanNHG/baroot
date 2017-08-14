@@ -24,3 +24,22 @@ export const debug = <T>(thing : T) : T => {
 
 export const getUniqueId = () : string =>
   uuid()
+
+const daysOfTheWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'November', 'December']
+
+export const prettify = (date: Date) : string => {
+  const day = daysOfTheWeek[date.getDay()]
+  const month = months[date.getMonth()]
+  const dayOfMonth = date.getDate()
+  const year = date.getFullYear()
+  const _militaryHour = date.getHours()
+  const hour =
+    (_militaryHour > 12) ? _militaryHour - 12 :
+    (_militaryHour === 0) ? 12 :
+    _militaryHour
+  const minutes = date.getMinutes()
+  const amPm = _militaryHour > 11 ? 'pm' : 'am'
+  
+  return `${day}, ${month} ${dayOfMonth}, ${year} ${hour}:${minutes} ${amPm}`
+}

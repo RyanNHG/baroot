@@ -3,9 +3,9 @@ export type User = {
 }
 
 export type Squigg = {
+  id : String,
   content : String,
-  user : User,
-  votes: {
-    up : Number
-  }
+  user : String,
+  timestamp : String,
+  votes: String[]
 }

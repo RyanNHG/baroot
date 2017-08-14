@@ -5,8 +5,8 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Http
-import Json.Decode
-import Json.Encode
+import Json.Decode as Decode
+import Json.Encode as Encode
 import Navigation exposing (Location)
 
 
@@ -15,6 +15,7 @@ type Msg
     | ToggleNavbar
     | SortBy SortOption
     | MakeSquigg
+    | MakeSquiggRespond (Result Http.Error (ApiResponse Squigg))
     | Update InputField String
     | ToggleSignInForm
     | SignInClicked
@@ -59,8 +60,12 @@ type alias ApiResponse a =
     }
 
 
+type alias Id =
+    String
+
+
 type alias User =
-    { id : String
+    { id : Id
     }
 
 
@@ -70,9 +75,11 @@ type alias Votes =
 
 
 type alias Squigg =
-    { content : String
-    , user : User
-    , votes : Votes
+    { id : Id
+    , content : String
+    , user : Id
+    , timestamp : String
+    , votes : List Id
     }
 
 
@@ -82,19 +89,25 @@ type alias Context =
     }
 
 
+type Page
+    = Homepage
+
+
 type alias Model =
-    { context : Context
+    { user : Maybe User
+    , squiggs : List Squigg
+    , page : Page
     , expandedNavbar : Bool
     , sortOption : SortOption
     , sortAscending : Bool
     , draft : String
-    , squiggs : List Squigg
     , username : String
     , password : String
     , showSignInForm : Bool
     , signingUp : Bool
     , signingIn : Bool
     , signInError : String
+    , creatingSquigg : Bool
     }
 
 
@@ -112,19 +125,26 @@ main =
 init : Context -> Location -> ( Model, Cmd Msg )
 init context location =
     Model
-        context
+        context.user
+        context.squiggs
+        (getPageFrom location)
         False
         Top
-        True
+        False
         ""
-        []
         ""
         ""
         False
         False
         False
         ""
+        False
         ! []
+
+
+getPageFrom : Location -> Page
+getPageFrom location =
+    Homepage
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -137,18 +157,32 @@ update msg model =
             { model | expandedNavbar = not model.expandedNavbar } ! []
 
         SortBy sortOption ->
-            if sortOption == model.sortOption then
-                { model | sortAscending = not model.sortAscending } ! []
-            else
-                { model | sortOption = sortOption } ! []
+            -- if sortOption == model.sortOption then
+            --     { model | sortAscending = not model.sortAscending } ! []
+            -- else
+            { model | sortOption = sortOption } ! []
 
         MakeSquigg ->
-            case model.context.user of
+            case model.user of
                 Just user ->
-                    makeSquigg (Squigg model.draft user (Votes 0)) model ! []
+                    { model | creatingSquigg = True } ! [ createSquigg user model ]
 
                 Nothing ->
                     model ! []
+
+        MakeSquiggRespond (Ok response) ->
+            if response.error then
+                { model | creatingSquigg = False } ! []
+            else
+                { model
+                    | creatingSquigg = False
+                    , draft = ""
+                    , squiggs = response.data ++ model.squiggs
+                }
+                    ! []
+
+        MakeSquiggRespond (Err _) ->
+            model ! []
 
         Update DraftSquigg draft ->
             { model | draft = draft } ! []
@@ -182,7 +216,7 @@ update msg model =
                 { model
                     | signingIn = False
                     , showSignInForm = False
-                    , context = setUser (List.head response.data) model.context
+                    , user = List.head response.data
                 }
                     ! []
 
@@ -202,7 +236,7 @@ update msg model =
                 model ! []
             else
                 { model
-                    | context = setUser Nothing model.context
+                    | user = Nothing
                 }
                     ! []
 
@@ -214,9 +248,20 @@ update msg model =
             model ! []
 
 
-setUser : Maybe User -> Context -> Context
-setUser user context =
-    { context | user = user }
+createSquigg : User -> { a | draft : String } -> Cmd Msg
+createSquigg user { draft } =
+    Http.send MakeSquiggRespond
+        (Http.post "/api/squiggs" (squiggBody user draft) (responseDecoder squiggDecoder))
+
+
+squiggBody : User -> String -> Http.Body
+squiggBody user content =
+    Http.jsonBody
+        (Encode.object
+            [ ( "content", Encode.string content )
+            , ( "user", Encode.string user.id )
+            ]
+        )
 
 
 signIn : Credentials a -> Cmd Msg
@@ -231,7 +276,7 @@ signUp =
 
 signOut : Cmd Msg
 signOut =
-    Http.send SignOutRespond (Http.post "/api/sign-out" Http.emptyBody (responseDecoder Json.Decode.string))
+    Http.send SignOutRespond (Http.post "/api/sign-out" Http.emptyBody (responseDecoder Decode.string))
 
 
 signInUpHelper : String -> Credentials a -> Cmd Msg
@@ -244,25 +289,35 @@ signInUpHelper endpoint credentials =
 bodyFromCredentials : Credentials a -> Http.Body
 bodyFromCredentials { username, password } =
     Http.jsonBody
-        (Json.Encode.object
-            [ ( "username", Json.Encode.string <| username )
-            , ( "password", Json.Encode.string <| password )
+        (Encode.object
+            [ ( "username", Encode.string <| username )
+            , ( "password", Encode.string <| password )
             ]
         )
 
 
-responseDecoder : Json.Decode.Decoder a -> Json.Decode.Decoder (ApiResponse a)
+responseDecoder : Decode.Decoder a -> Decode.Decoder (ApiResponse a)
 responseDecoder decoder =
-    Json.Decode.map3 ApiResponse
-        (Json.Decode.field "error" Json.Decode.bool)
-        (Json.Decode.field "message" Json.Decode.string)
-        (Json.Decode.field "data" (Json.Decode.list decoder))
+    Decode.map3 ApiResponse
+        (Decode.field "error" Decode.bool)
+        (Decode.field "message" Decode.string)
+        (Decode.field "data" (Decode.list decoder))
 
 
-userDecoder : Json.Decode.Decoder User
+userDecoder : Decode.Decoder User
 userDecoder =
-    Json.Decode.map User
-        (Json.Decode.field "id" Json.Decode.string)
+    Decode.map User
+        (Decode.field "id" Decode.string)
+
+
+squiggDecoder : Decode.Decoder Squigg
+squiggDecoder =
+    Decode.map5 Squigg
+        (Decode.field "id" Decode.string)
+        (Decode.field "content" Decode.string)
+        (Decode.field "user" Decode.string)
+        (Decode.field "timestamp" Decode.string)
+        (Decode.field "votes" (Decode.list Decode.string))
 
 
 makeSquigg : Squigg -> Model -> Model
@@ -290,15 +345,18 @@ baroot =
 view : Model -> Html Msg
 view model =
     div [ class "app" ]
-        [ viewNavbar model.draft ( model.sortOption, model.sortAscending ) model.expandedNavbar model.context.user
-        , viewPage model.context
+        [ viewNavbar model.draft ( model.sortOption, model.sortAscending ) model.expandedNavbar model.user
+        , viewPage model
         , viewSignInModal model model
         ]
 
 
 navbarTabs : List SortOption
 navbarTabs =
-    [ Top, Recent, Awful ]
+    [ Top
+    , Recent
+    , Awful
+    ]
 
 
 type alias SortInfo =
@@ -319,20 +377,13 @@ viewNavbar draft sortInfo expandedNavbar user =
                     , classList [ ( "is-active", expandedNavbar ) ]
                     , onClick ToggleNavbar
                     ]
-                    [ span [] []
-                    , span [] []
-                    , span [] []
-                    ]
+                    [ span [] [], span [] [], span [] [] ]
                 ]
             , div [ class "navbar-menu", classList [ ( "is-active", expandedNavbar ) ] ]
                 [ div [ class "navbar-start" ]
                     [ div [ class "nav-item tabs is-toggle is-marginless" ]
                         [ ul [] (List.map (viewNavbarTab sortInfo) navbarTabs)
                         ]
-                    , if user /= Nothing then
-                        viewNewPostField draft
-                      else
-                        text ""
                     ]
                 , div [ class "navbar-end" ]
                     [ div [ class "nav-item" ]
@@ -367,24 +418,24 @@ isValidPost value_ =
     String.length value_ > 0
 
 
-viewNewPostField : String -> Html Msg
-viewNewPostField value_ =
-    div [ class "nav-item field has-addons" ]
-        [ div [ class "control" ]
+viewNewPostField : { a | draft : String, creatingSquigg : Bool } -> Html Msg
+viewNewPostField { draft, creatingSquigg } =
+    div [ class "field has-addons" ]
+        [ div [ class "control", style [ ( "flex", "1" ) ] ]
             [ input
-                [ class "input"
+                [ class "input is-medium"
                 , type_ "text"
                 , onInput (Update DraftSquigg)
                 , placeholder "Make a squigg"
-                , value value_
+                , value draft
                 ]
                 []
             ]
         , div [ class "control" ]
-            [ if isValidPost value_ then
-                button [ class "button is-info", onClick MakeSquigg ] [ text "Send" ]
+            [ if isValidPost draft then
+                button [ class "button is-medium is-info", classList [ ( "is-loading", creatingSquigg ) ], onClick MakeSquigg ] [ text "Send" ]
               else
-                button [ class "button", disabled True ] [ text "Send" ]
+                button [ class "button is-medium", disabled True ] [ text "Send" ]
             ]
         ]
 
@@ -417,9 +468,46 @@ viewNavbarTab ( activeOption, ascending ) option =
         ]
 
 
-viewPage : Context -> Html Msg
-viewPage context =
-    div [ class "hero" ] []
+viewSquigg : Maybe User -> Squigg -> Html Msg
+viewSquigg user squigg =
+    div [ class "box" ]
+        [ article [ class "media" ]
+            [ div [ class "media-content" ]
+                [ div [ class "content" ]
+                    [ p []
+                        [ small [ class "has-text-grey" ] [ text squigg.timestamp ]
+                        , br [] []
+                        , text squigg.content
+                        ]
+                    ]
+                , div [ class "content" ] []
+                ]
+            ]
+        ]
+
+
+viewPage : { a | user : Maybe User, squiggs : List Squigg, page : Page, draft : String, creatingSquigg : Bool, sortOption : SortOption } -> Html Msg
+viewPage { user, squiggs, page, draft, creatingSquigg, sortOption } =
+    case page of
+        Homepage ->
+            div [ class "container", style [ ( "padding", "1rem" ) ] ]
+                ([ if user /= Nothing then
+                    viewNewPostField { draft = draft, creatingSquigg = creatingSquigg }
+                   else
+                    text ""
+                 ]
+                    ++ List.map (viewSquigg user) (List.sortWith (withSortOption sortOption) squiggs)
+                )
+
+
+withSortOption : SortOption -> Squigg -> Squigg -> Basics.Order
+withSortOption sortOption a b =
+    case sortOption of
+        _ ->
+            if List.length a.votes < List.length b.votes then
+                Basics.LT
+            else
+                Basics.GT
 
 
 viewSignInModal : SigningInStatus a -> Credentials b -> Html Msg

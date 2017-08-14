@@ -58,7 +58,9 @@ gulp.task('elm:init', elm.init)
 
 gulp.task('elm', ['elm:init'], () =>
   gulp.src(paths.elm.src)
-    .pipe(elm.bundle(paths.elm.out))
+    .pipe(elm.bundle(paths.elm.out, {
+      debug: process.env.NODE_ENV !== 'production'
+    }))
     .on('error', () => {})
     .pipe(gulp.dest(paths.elm.dest))
 )
